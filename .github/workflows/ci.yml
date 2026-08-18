@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Weekly, because this is a reference implementation people copy from: it can
+  # break without anyone touching it when Keystatic, Next, or @simplewebauthn
+  # ship a breaking release. A red scheduled run is the only signal.
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: 'ci-${{ github.ref }}'
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # 22, not 20: the tests run TypeScript directly via
+          # --experimental-strip-types, which needs >= 22.6.
+          node-version: '22'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        env:
+          # Keystatic's github storage mode validates these while collecting
+          # page data, so a build needs them present. Placeholders are fine —
+          # nothing here authenticates against GitHub.
+          KEYSTATIC_GITHUB_CLIENT_ID: build-placeholder
+          KEYSTATIC_GITHUB_CLIENT_SECRET: build-placeholder
+          KEYSTATIC_SECRET: build-placeholder-secret-minimum-32-chars
+        run: npm run build
