@@ -1,0 +1,97 @@
+{
+  "model": "claude-opus-5[1m]",
+  "effortLevel": "high",
+  "fastMode": true,
+  "skillListingMaxDescChars": 200,
+  "skillListingBudgetFraction": 0.016,
+  "skillOverrides": {
+    "xlsx": "off",
+    "docx": "off",
+    "pptx": "off",
+    "build-mcp-server": "off",
+    "dataviz": "name-only",
+    "pdf": "name-only",
+    "skill-creator": "name-only",
+    "update-config": "name-only",
+    "keybindings-help": "name-only",
+    "fewer-permission-prompts": "name-only",
+    "claude-in-chrome": "name-only",
+    "init": "name-only",
+    "loop": "name-only",
+    "schedule": "name-only",
+    "run": "name-only",
+    "simplify": "name-only",
+    "security-review": "name-only"
+  },
+  "enableWorkflows": true,
+  "env": {
+    "BASH_DEFAULT_TIMEOUT_MS": "300000",
+    "BASH_MAX_TIMEOUT_MS": "900000",
+    "BASH_MAX_OUTPUT_LENGTH": "50000",
+    "MAX_MCP_OUTPUT_TOKENS": "10000",
+    "MCP_TIMEOUT": "10000",
+    "MCP_TOOL_TIMEOUT": "60000"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/inject-session-context.sh\"",
+            "statusMessage": "context"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/format.sh\"",
+            "statusMessage": "format"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/verify-gate.sh\""
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/failure-diagnose.sh\""
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/inject-session-context.sh\""
+          }
+        ]
+      }
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "\"$CLAUDE_PROJECT_DIR/.claude/statusline.sh\"",
+    "padding": 0,
+    "refreshInterval": 3
+  }
+}

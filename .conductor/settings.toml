@@ -1,0 +1,22 @@
+"$schema" = "https://conductor.build/schemas/settings.repo.schema.json"
+
+[scripts]
+# Cloud workspaces start from a bare Linux sandbox with no ~/.claude, so pull vstack in.
+# Pinned to a reviewed commit so a compromised repo/account cannot push code into every
+# sandbox at once — bump the SHA deliberately when updating vstack.
+# Add this repo's own install step (npm ci, uv sync, ...) to the end of this line.
+setup = "curl -fsSL https://raw.githubusercontent.com/itsvedantkumar/vstack/ee504e21551700ec02be52ad1630b42721776eb9/bootstrap.sh | bash"
+run_mode = "concurrent"
+
+[scripts.run.verify]
+command = "./.claude/verify.sh"
+icon = "shield-check"
+
+# Live preview for the ui-iterate / design-review loop. Each local workspace gets ten ports
+# starting at $CONDUCTOR_PORT. Adjust the command to the repo's dev runner (vite needs
+# `npm run dev -- --port $CONDUCTOR_PORT`); delete this block for repos with no frontend.
+[scripts.run.dev]
+available_in = [ "local" ]
+command = "PORT=$CONDUCTOR_PORT npm run dev"
+default = true
+icon = "play"
