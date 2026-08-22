@@ -30,6 +30,12 @@ The server watches a directory for HTML files and serves the newest one to the b
 
 **Content fragments vs full documents:** If your HTML file starts with `<!DOCTYPE` or `<html`, the server serves it as-is (just injects the helper script). Otherwise, the server automatically wraps your content in the frame template — adding the header, CSS theme, connection status, and all interactive infrastructure. **Write content fragments by default.** Only write full documents when you need complete control over the page.
 
+> **Not vendored here.** This port ships the playbook only; upstream's `scripts/` directory —
+> `start-server.sh`, `stop-server.sh`, `helper.js` — is not included, so every command below
+> that invokes one is unavailable and will fail. Treat this file as a description of the
+> companion's behaviour, not as steps to run. Offer the user the equivalent by hand (write the
+> HTML, serve it with any static server they already have) or point them at upstream.
+
 ## Starting a Session
 
 ```bash
@@ -57,39 +63,16 @@ without repeating it.
 
 **Note:** Pass the project root as `--project-dir` so mockups persist in `.superpowers/brainstorm/` and survive server restarts. Without it, files go to `/tmp` and get cleaned up. Remind the user to add `.superpowers/` to `.gitignore` if it's not already there.
 
-**Launching the server by platform:**
+**Launching the server:**
 
-**Claude Code:**
 ```bash
-# Default mode works — the script backgrounds the server itself.
+# The script backgrounds the server itself.
 scripts/start-server.sh --project-dir /path/to/project --open
 ```
 
-On Windows, the script auto-detects and switches to foreground mode (which blocks the tool call). Use `run_in_background: true` on the Bash tool call so the server survives across conversation turns, then read `$STATE_DIR/server-info` on the next turn to get the URL and port.
-
-**Codex:**
-```bash
-# Codex reaps background processes. The script auto-detects CODEX_CI and
-# switches to foreground mode. Run it normally — no extra flags needed.
-scripts/start-server.sh --project-dir /path/to/project --open
-```
-
-**Gemini CLI:**
-```bash
-# Use --foreground and set is_background: true on your shell tool call
-# so the process survives across turns
-scripts/start-server.sh --project-dir /path/to/project --open --foreground
-```
-
-**Copilot CLI:**
-```bash
-# Use --foreground and start the server via the bash tool with mode: "async"
-# so the process survives across turns. Capture the returned shellId for
-# read_bash / stop_bash if you need to interact with it later.
-scripts/start-server.sh --project-dir /path/to/project --open --foreground
-```
-
-**Other environments:** The server must keep running in the background across conversation turns. If your environment reaps detached processes, use `--foreground` and launch the command with your platform's background execution mechanism.
+The server has to stay up across conversation turns. If it does not, pass `--foreground` and run
+the command with `run_in_background: true` on the Bash tool, then read `$STATE_DIR/server-info`
+on the next turn for the URL and port.
 
 If the URL is unreachable from your browser (common in remote/containerized setups), bind a non-loopback host:
 

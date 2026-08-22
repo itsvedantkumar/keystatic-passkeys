@@ -39,6 +39,35 @@ else
 fi
 [ -z "$event" ] || [ "$event" = "null" ] && event="SessionStart"
 
+# --- one voice per event ---------------------------------------------------------------
+# Claude Code MERGES hook arrays across settings layers instead of overriding them, so a repo
+# carrying the committed overlay ran ~/.claude's copy AND its own: every baseline block, digest
+# and directive twice, every turn, on this machine.
+#
+# Deleting the committed copy is not the fix — a cloud sandbox clones the repo and has no
+# ~/.claude, so that copy is the only lane config reaches it by. The project copy stands down
+# instead, and only while the user-scope copy is demonstrably doing the job.
+#
+# Each of the three tests earns its place. The */.claude/hooks/ shape keeps vstack's own source
+# copy at claude/hooks/ (no dot) emitting, which is what the gate pipes into. The self != global
+# test keeps ~/.claude's copy — which matches that same shape — alive. The grep proves the global
+# copy is actually registered, so a half-installed ~/.claude cannot silence every repo at once.
+self="$(cd "$(dirname "$0")" 2>/dev/null && pwd)/$(basename "$0")"
+global="$HOME/.claude/hooks/inject-session-context.sh"
+is_overlay=0
+case "$self" in
+  */.claude/hooks/inject-session-context.sh)
+    [ "$self" != "$global" ] && is_overlay=1 ;;
+esac
+global_live=0
+if [ -f "$global" ] && grep -q 'inject-session-context\.sh' "$HOME/.claude/settings.json" 2>/dev/null; then
+  global_live=1
+fi
+if [ "${VSTACK_DUPE_SUPPRESS:-1}" = "1" ] && [ "$is_overlay" = 1 ] && [ "$global_live" = 1 ]; then
+  emit "$event"
+  exit 0
+fi
+
 # Per-prompt digest: must stay tiny and fast (no git work) — it runs on every prompt.
 # The skills profile re-pins nothing per prompt; one session-start block is the
 # least a skill pack can inject and still work.
@@ -47,8 +76,45 @@ if [ "$event" = "UserPromptSubmit" ]; then
     emit "$event"
     exit 0
   fi
+  # Grilling, on two triggers.
+  #
+  # A long prompt is a plan whether or not it says so, and the first substantive request of a
+  # session is the one where a bad assumption is cheapest to catch and most expensive to keep.
+  # Both are decidable here without judgement: one is a character count, the other is whether
+  # this session has been seen before.
+  #
+  # Deliberately not a Stop-hook mandate. Blocking the end of every long-prompt turn that did not
+  # grill would fire constantly, and compare-baseline already records the rule this setup runs
+  # on: a guard that nags gets switched off, which is worse than one that is merely probable.
+  # This injects an instruction at the moment it applies and leaves the model to act on it.
+  #
+  # VSTACK_NO_GRILL=1 turns it off. VSTACK_GRILL_CHARS moves the long-prompt threshold.
+  grill=""
+  if [ "${VSTACK_NO_GRILL:-0}" != "1" ] && [ -n "$JQ" ]; then
+    _p=$(printf '%s' "$in" | "$JQ" -r '.prompt // empty' 2>/dev/null)
+    _n=${#_p}
+    _sid=$(printf '%s' "$in" | "$JQ" -r '.session_id // empty' 2>/dev/null)
+    _seen=""
+    if [ -n "$_sid" ]; then
+      _dir="${TMPDIR:-/tmp}/vstack-grill"
+      mkdir -p "$_dir" 2>/dev/null
+      # Pruned by age rather than on exit: there is no hook event for "session ended", and a
+      # marker directory that only grows is a slow leak on a machine that runs many sessions.
+      find "$_dir" -type f -mmin +720 -delete 2>/dev/null
+      _mark="$_dir/$(printf '%s' "$_sid" | tr -cd 'A-Za-z0-9_-')"
+      [ -e "$_mark" ] && _seen=1
+      : > "$_mark" 2>/dev/null
+    fi
+    # First substantive prompt of the session, or any prompt long enough to be a plan. The
+    # 120-character floor on the first one keeps "fix this typo" from opening an interview.
+    if [ "$_n" -ge "${VSTACK_GRILL_CHARS:-320}" ] \
+       || { [ -z "$_seen" ] && [ "$_n" -ge 120 ]; }; then
+      grill='
+GRILL: run the grill-me skill on this request now, before any code or plan. Not optional.'
+    fi
+  fi
   emit "$event" 'TOKENS: grep/ranges, not whole files; batch independent tool calls in ONE message.
-DELEGATE: mechanical -> worker/explorer, judgment -> sonnet agents. ACT, do not ask. Skills fire on the situation — call the Skill tool.'
+DELEGATE: mechanical -> worker/explorer, judgment -> sonnet agents. ACT, do not ask. Skills fire on the situation — call the Skill tool.'"$grill"
   exit 0
 fi
 
@@ -70,8 +136,11 @@ Descriptions alone do not reliably trigger the first two lines below, so they ar
 - any prose you write (docs, README, PR body, commit msg) -> unslop; docs/RFC/README ->
   technical-writing. Reading/writing/reviewing .ts/.tsx -> typescript-best-practices.
 - work splits into independent parts, or "in parallel"/"at once"/"try N ways" -> swarm.
+  Deterministic pipelines (stages, loops, verify passes) -> the native Workflow tool, not
+  chained Agent calls.
 - shipping a risky change or a diff you do not trust -> blast-radius. Merging auth, payments,
   or agent-written code with no second reviewer -> interrogate.
+- about to write a UI component from scratch in a React/Tailwind repo -> component-registry.
 - repo has no scripted proof it works -> create-verification-skill (it writes the
   .claude/verify.sh the Stop hook runs). That gate stale -> maintain-verification-skill.
 - work runs unattended/overnight, or you are told someone reviews it later -> start
@@ -89,8 +158,20 @@ EOF
 )
 
 # Skills profile: keep only the SKILLS block. Everything above it is operating policy.
+#
+# One line inside the block was operating policy too, and it survived the cut. "any feature or
+# change request -> run the chain" mandates four skills and a written plan for every change,
+# including a one-line fix. That is a considered choice on the machine this was written for. It
+# is not a choice a stranger made by installing a skill pack, and the README's promise that this
+# lane imposes no policy was untrue while that line shipped.
+#
+# The chain is still described, because it is genuinely good for work that warrants it. It is
+# described as a judgement rather than an instruction.
 if [ "${VSTACK_PROFILE:-}" = "skills" ]; then
   MSG=$(printf '%s\n' "$MSG" | sed -n '/^SKILLS:/,$p')
+  MSG=$(printf '%s\n' "$MSG" | sed \
+    -e 's|^- any feature or change request -> run the chain: brainstorming, then writing-plans, then$|- a feature worth planning (multi-step, unclear shape, hard to undo) -> brainstorming, then|' \
+    -e 's|^  test-driven-development, then executing-plans\.$|  writing-plans, then test-driven-development, then executing-plans. Skip it for small,\n  obvious changes — the chain is for work where getting the shape wrong is expensive.|')
   emit "$event" "$MSG"
   exit 0
 fi
@@ -126,6 +207,28 @@ WORKSPACE CONVENTIONS.
   \`\$(git rev-parse --git-common-dir)/info/exclude\`, append it before writing.
 - If the user asks for work unrelated to this branch, do not start it here; say so and offer
   a separate git worktree (\`claude -w <name>\`)."
+  fi
+fi
+
+# --- the policy document, for sandboxes only ---------------------------------------------
+# It used to travel as a second CLAUDE.md committed into the repo. That worked, and it also meant
+# ~/.claude/CLAUDE.md and .claude/CLAUDE.md held identical bytes on this machine and Claude Code
+# loaded both, as user memory and as project memory. Nothing could dedupe that: the client reads
+# both files itself and no hook runs in between.
+#
+# So the overlay ships the text as .claude/hooks/policy.md, which is not a memory path and is read
+# by nothing but this script, and the copy that already knows whether it is the only voice in the
+# room decides whether to speak it. A sandbox has no ~/.claude, so the overlay is the only lane and
+# it carries the policy. On a machine with the user-scope install, ~/.claude/CLAUDE.md carries it
+# and this appends nothing -- which is also why the condition is global_live rather than the
+# suppression switch: turning the switch off should restore the digest, not reintroduce a second
+# copy of the policy.
+if [ "${is_overlay:-0}" = 1 ] && [ "${global_live:-0}" = 0 ]; then
+  pol="$(dirname "$self")/policy.md"
+  if [ -r "$pol" ]; then
+    MSG="$MSG
+
+$(cat "$pol")"
   fi
 fi
 
