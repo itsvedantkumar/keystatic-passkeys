@@ -1,6 +1,6 @@
 ---
 name: impeccable
-description: "Use when building or polishing any UI where visual quality matters: production-grade typography, motion, spacing, and brand-vs-product design modes beyond the stock frontend-design bar."
+description: "While polishing UI that already renders, when visual quality is the bar: production-grade typography, motion, spacing, and brand-vs-product modes beyond the stock design level."
 ---
 
 This skill gives you the tools and permission to create design that earns to be called out-of-distribution craft: Whereas before, your design work would have been safe, timid and measured, you now approach every design task as a award-winning design director with impeccable understanding for what makes exceptional design work: production-grade code, peak creativity, a clear POV, deep understanding of the needs of the client and users, and exceptional craft.
@@ -32,6 +32,56 @@ The mode names what the visitor's success looks like on this surface.
 - **Experience:** the visitor is inside the work itself. Portfolios, galleries, showcases. Let the artifact lead from the first viewport; the interface recedes.
 
 Choose the mode from the requested surface, not the product, and persist it only in that surface brief. A tool's landing page is still Persuade; a fashion house's documentation is still Read; a docs index is Read, not Persuade. See [new-work.md](reference/new-work.md) for new surfaces and [operate.md](reference/operate.md) for deeper Operate/Read guidance.
+
+## Visual direction, measured per project
+
+The four surface modes above answer *what the visitor is doing*. They do not answer *what it looks
+like*, and a description of visual quality cannot produce it: the one head-to-head anyone has run
+found prose instruction without retrieval made outcomes worse than none (9.94% regression rate
+against a 6.08% baseline) while the same instruction with retrieval context reached 1.82%.
+
+So visual direction is measured, not described — and measured **per project**, from references the
+user names. This skill ships no reference set. A bundled corpus is a taste snapshot: it rots, it
+knows nothing about the surface in front of you, and it drags every build toward whatever those
+sites did on the day they were measured.
+
+`scripts/extract-brand.sh <url>...` points a headless browser at any reference and returns the
+rendered type scale, tracking per size in em, leading per size, measure in ch, resolved ink and
+ground with a hue count, a spacing census with base-unit conformance, transition duration and
+easing frequencies, and the radius set. Reconcile the references into `.impeccable/brand.json`,
+show mockups, then build.
+
+The full pipeline, and what to read off a reference and why each item is on the list:
+[reference/modes/README.md](reference/modes/README.md). Schema:
+[reference/modes/brand.schema.json](reference/modes/brand.schema.json).
+
+**Opt-in per project.** With no `.impeccable/brand.json` in the target, none of this fires and the
+surface is built normally. `ui-gate/rules/tokens.sh` reads `type.scale` from that file and fails a
+build off it. A skill that decides on its own whether something deserves to be beautiful would
+fire wrongly and constantly; a file in the repo is a decision somebody made.
+
+Where references disagree, put the disagreement to the user. Do not average it: base unit, texture
+and radius policy contradict each other between sites, and a blend resolves every contradiction
+toward the stock default.
+
+## Claude Design
+
+Claude Code ships `/design-sync` and `/design-login` built into the CLI binary (verified at
+2.1.239), backed by a `DesignSync` tool with `list_projects`, `create_project`, `get_project`,
+`list_files`, `write_files`, `delete_files`, `finalize_plan`. It detects Storybook or bare-package
+repo shape, builds and grades component previews, and maintains `.design-sync/` in-repo.
+
+Direction is one way: **Claude Code pushes a design system up to claude.ai/design.** Coming back is
+a manual Export, "Hand off to Claude Code". There is no in-session pull and no public API, so this
+is a publishing lane, not a generation lane. Do not plan around generating a Design artifact from
+here.
+
+Requires the feature enabled on the account. If `/design-login` reports no access, say so and tell
+the user to enable Claude Design for their account — Pro, Max and Team have it; Enterprise has it
+off by default and an admin must turn it on. Do not work around the absence.
+
+Do not copy a signature move into a project that did not ask for that mode. One jittering element
+reads as deliberate; two read as a broken renderer.
 
 ## Commands
 

@@ -5,7 +5,7 @@
 # Pinned to a reviewed commit so a compromised repo/account cannot push code into every
 # sandbox at once — bump the SHA deliberately when updating vstack.
 # Add this repo's own install step (npm ci, uv sync, ...) to the end of this line.
-setup = "curl -fsSL https://raw.githubusercontent.com/itsvedantkumar/vstack/ee504e21551700ec02be52ad1630b42721776eb9/bootstrap.sh | bash"
+setup = "curl -fsSL https://raw.githubusercontent.com/itsvedantkumar/vstack/eff7214b9d90e180ef0443af49e24a42ec18b603/bootstrap.sh | bash"
 run_mode = "concurrent"
 
 [scripts.run.verify]

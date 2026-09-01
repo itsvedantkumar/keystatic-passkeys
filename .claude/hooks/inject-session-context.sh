@@ -68,6 +68,26 @@ if [ "${VSTACK_DUPE_SUPPRESS:-1}" = "1" ] && [ "$is_overlay" = 1 ] && [ "$global
   exit 0
 fi
 
+# Compatibility canary: SessionStart only (not every prompt) -- a version/payload-shape check is
+# a once-per-session concern, and this is the copy that actually speaks for this session (the
+# dupe-suppressed overlay returned above without reaching here). VSTACK_NO_COMPAT_CANARY=1 turns
+# it off. Never blocks and NEVER touches this hook's own stdout: check 18 (.claude/verify.sh)
+# measures the SessionStart hook's total stdout byte count and the real baseline sits 4 bytes
+# under its 4096-byte cap, so anything appended to hookSpecificOutput here -- additionalContext
+# OR a sibling systemMessage field, both live in the same JSON line -- would push the gate red on
+# exactly the occasion the canary is doing its job (a real Claude Code version bump). The
+# durable, visible record is compat-canary.sh's own state file
+# (${CLAUDE_CONFIG_DIR:-$HOME/.claude}/vstack-compat-canary.json, one JSON object, overwritten
+# per check) plus this stderr line, which check 18's probe explicitly discards (`2>/dev/null`)
+# and which a real Claude Code session does not fold into model context either.
+if [ "$event" = "SessionStart" ] && [ "${VSTACK_NO_COMPAT_CANARY:-0}" != "1" ]; then
+  _cc="$(dirname "$self")/compat-canary.sh"
+  if [ -x "$_cc" ]; then
+    _cc_out=$(printf '%s' "$in" | "$_cc" 2>/dev/null)
+    [ $? -eq 2 ] && printf 'vstack compat canary: %s\n' "$_cc_out" >&2
+  fi
+fi
+
 # Per-prompt digest: must stay tiny and fast (no git work) — it runs on every prompt.
 # The skills profile re-pins nothing per prompt; one session-start block is the
 # least a skill pack can inject and still work.
@@ -110,11 +130,44 @@ if [ "$event" = "UserPromptSubmit" ]; then
     if [ "$_n" -ge "${VSTACK_GRILL_CHARS:-320}" ] \
        || { [ -z "$_seen" ] && [ "$_n" -ge 120 ]; }; then
       grill='
-GRILL: run the grill-me skill on this request now, before any code or plan. Not optional.'
+GRILL: run the grill-me skill when no skill matches this situation more specifically. A
+situation-matched skill outranks it. grill-me is for a request whose shape is still undecided.'
+    fi
+  fi
+  # Delegation-mandate strike count, re-pinned every prompt instead of stated once at
+  # SessionStart and then never again. skill-mandate.sh (Stop) is the only writer of these two
+  # small counter files; this only reads them -- a cat of two tiny files under $TMPDIR, not a
+  # transcript parse, so it costs nothing like the Stop hook's own evaluation does. It is also
+  # why this can run every single prompt with no latency argument to make: there is no scan here.
+  #
+  # Two independent counters because skill-mandate.sh's own delegation family (breadth +
+  # agent-naming) no longer shares the skill mandates' (unslop/typescript/prove-it-works)
+  # 2-strike-per-session latch -- it latches 2-per-$VSTACK_DELEGATE_RESET_SECS-window instead, so
+  # a long session's delegation reminder keeps re-arming instead of going silent forever the
+  # first time both skill mandates tripped. See skill-mandate.sh's own comment at the top of its
+  # counter-reading section for the real-session evidence (5b14be87-2cee-4661-96ea-6106ef15f313)
+  # that motivated the split.
+  #
+  # Silent (0 bytes) at 0/0, same as $grill's own steady state -- most prompts in most sessions
+  # never tripped either mandate, and the byte budget (check 18 / the grill worst-case probe in
+  # .claude/verify.sh) is a hard cap paid on every single prompt whether or not either counter is
+  # nonzero, so a line that always rendered would be the expensive default for the common case.
+  mandate=""
+  if [ "${VSTACK_NO_MANDATE:-0}" != "1" ] && [ -n "$JQ" ]; then
+    _msid=$(printf '%s' "$in" | "$JQ" -r '.session_id // empty' 2>/dev/null)
+    [ -n "$_msid" ] || _msid="pid$PPID"
+    _mcnt_file="${TMPDIR:-/tmp}/vstack-mandate-$_msid"
+    _mcnt=$(cat "$_mcnt_file" 2>/dev/null || echo 0)
+    case "$_mcnt" in ''|*[!0-9]*) _mcnt=0 ;; esac
+    _mdcnt=$(cat "$_mcnt_file.delegate" 2>/dev/null || echo 0)
+    case "$_mdcnt" in ''|*[!0-9]*) _mdcnt=0 ;; esac
+    if [ "$_mcnt" -ge 1 ] || [ "$_mdcnt" -ge 1 ]; then
+      mandate="
+MANDATE skill=$_mcnt/2 delegate=$_mdcnt/2: dispatch + name a call sign now."
     fi
   fi
   emit "$event" 'TOKENS: grep/ranges, not whole files; batch independent tool calls in ONE message.
-DELEGATE: mechanical -> worker/explorer, judgment -> sonnet agents. ACT, do not ask. Skills fire on the situation — call the Skill tool.'"$grill"
+DELEGATE: mechanical -> worker/explorer, judgment -> sonnet agents. ACT, do not ask. Skills fire on the situation — call the Skill tool.'"$grill$mandate"
   exit 0
 fi
 
@@ -130,8 +183,12 @@ synthesis on the main thread. Subagents return tight summaries, never file dumps
 edits to shared files. Skip delegation only for a truly trivial one-step ask.
 AUTONOMY: act without asking; assume + document + proceed. Still confirm irreversible
 destructive ops.
-SKILLS: these fire on the SITUATION, not on a slash command. When one matches, call the Skill
-tool and follow it; do not reconstruct its method from memory, and do not wait to be asked.
+PLAN MODE: preempts this. Forces builtin Explore/Plan agents, bars writes. MORTY and ZEEP
+unreachable, /team deferred until exit.
+SKILLS + AGENTS: dispatch is attributed (e.g., "qa (BETH J-42) sampled X cases").
+Skills fire on the SITUATION, not a slash command. When one matches, call the Skill tool
+and follow it. Agent dispatch: each report says which agent, using roster call signs
+(RICK/MEESEEKS/MORTY/SUMMER/ZEEP/GLOOTIE/JAGUAR/BETH/BIRDPERSON/EVIL-MORTY/NOOBNOOB/PICKLE-RICK/SCARY-TERRY/POOPYBUTTHOLE/UNITY).
 Descriptions alone do not reliably trigger the first two lines below, so they are spelled out:
 - any prose you write (docs, README, PR body, commit msg) -> unslop; docs/RFC/README ->
   technical-writing. Reading/writing/reviewing .ts/.tsx -> typescript-best-practices.
@@ -145,33 +202,32 @@ Descriptions alone do not reliably trigger the first two lines below, so they ar
   .claude/verify.sh the Stop hook runs). That gate stale -> maintain-verification-skill.
 - work runs unattended/overnight, or you are told someone reviews it later -> start
   show-me-your-work BEFORE doing the work, not after.
-- any feature or change request -> run the chain: brainstorming, then writing-plans, then
-  test-driven-development, then executing-plans.
+- feature/change request, shape undecided -> brainstorming.
+- shape agreed, nothing written down -> writing-plans.
+- plan written, no test yet -> test-driven-development.
+- failing test exists against plan -> executing-plans.
 - you were corrected, or found a workflow worth keeping -> reflect.
 - PRINCIPLES (load the one that matches, then apply it): before claiming done ->
-  prove-it-works. Debugging or adding a try/except guard -> fix-root-causes. Same correction
-  twice -> encode-lessons-in-structure. Designing types/signatures -> type-system-discipline.
-  Validation/error handling/auth/MCP adapters -> boundary-discipline. Cron, launchd, retry
-  loops -> make-operations-idempotent. Sweeps, migrations, stacked commits ->
-  sequence-verifiable-units. Repeated manual edits or checks -> build-the-lever.
+  principle-prove-it-works. Debugging or adding a try/except guard ->
+  principle-fix-root-causes. Same correction twice -> principle-encode-lessons-in-structure.
+  Designing types/signatures -> principle-type-system-discipline. Validation/error
+  handling/auth/MCP adapters -> principle-boundary-discipline. Cron, launchd, retry loops ->
+  principle-make-operations-idempotent. Sweeps, migrations, stacked commits ->
+  principle-sequence-verifiable-units. Repeated manual edits or checks ->
+  principle-build-the-lever.
 EOF
 )
 
 # Skills profile: keep only the SKILLS block. Everything above it is operating policy.
 #
-# One line inside the block was operating policy too, and it survived the cut. "any feature or
-# change request -> run the chain" mandates four skills and a written plan for every change,
-# including a one-line fix. That is a considered choice on the machine this was written for. It
-# is not a choice a stranger made by installing a skill pack, and the README's promise that this
-# lane imposes no policy was untrue while that line shipped.
-#
-# The chain is still described, because it is genuinely good for work that warrants it. It is
-# described as a judgement rather than an instruction.
+# The chain used to be one mandate line ("run the chain: brainstorming, then writing-plans,
+# then...") that this branch rewrote into softer, non-mandate prose so a bare skill-pack
+# install carried no policy. It is now four situational lines in the source block itself --
+# each fires on its own precondition, not a forced sequence -- so no profile-specific rewrite
+# is needed; the skills-only pack gets the same judgement-not-instruction framing as everyone
+# else for free.
 if [ "${VSTACK_PROFILE:-}" = "skills" ]; then
-  MSG=$(printf '%s\n' "$MSG" | sed -n '/^SKILLS:/,$p')
-  MSG=$(printf '%s\n' "$MSG" | sed \
-    -e 's|^- any feature or change request -> run the chain: brainstorming, then writing-plans, then$|- a feature worth planning (multi-step, unclear shape, hard to undo) -> brainstorming, then|' \
-    -e 's|^  test-driven-development, then executing-plans\.$|  writing-plans, then test-driven-development, then executing-plans. Skip it for small,\n  obvious changes — the chain is for work where getting the shape wrong is expensive.|')
+  MSG=$(printf '%s\n' "$MSG" | sed -n '/^SKILLS/,$p')
   emit "$event" "$MSG"
   exit 0
 fi
