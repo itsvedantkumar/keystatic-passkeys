@@ -16,21 +16,21 @@
     "check": "tsc --noEmit && npm test"
   },
   "dependencies": {
-    "@keystatic/core": "^0.6.5",
+    "@keystatic/core": "^0.6.9",
     "@keystatic/next": "^5.0.2",
     "@simplewebauthn/browser": "^13.3.0",
-    "@simplewebauthn/server": "^13.3.2",
+    "@simplewebauthn/server": "^13.3.3",
     "@upstash/ratelimit": "^2.0.8",
-    "@upstash/redis": "^1.38.0",
-    "next": "^16.3.1",
+    "@upstash/redis": "^1.38.3",
+    "next": "^16.3.3",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
-    "@types/node": "^26.2.0",
+    "@types/node": "^26.4.0",
     "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.4",
+    "@types/react-dom": "^19.2.5",
     "postcss": "^8.5.26",
     "postcss-load-config": "^6.0.1",
     "tailwindcss": "^4.3.3",
